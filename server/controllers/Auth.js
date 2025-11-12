@@ -80,6 +80,8 @@ let a="";
 // Send OTP API
 exports.sendotp = async (req, res) => {
     try {
+      console.log("Hello world");
+      
         const { contactType, contactValue } = req.body; // contactType could be 'mobile', 'email', 'whatsapp'
         
         // check if user already exist

@@ -127,7 +127,7 @@ const ArogyaNetraCard = () => {
           };
         });
 
-        emblemImage.src = 'https://upload.wikimedia.org/wikipedia/commons/5/55/Emblem_of_India.svg';
+        emblemImage.src = 'https://res.cloudinary.com/dyg2kv4z4/image/upload/v1760036497/Med1plus_nbuahc.png';
 
         // Try to load the user image
         const userImage = new Image();
@@ -251,7 +251,7 @@ const ArogyaNetraCard = () => {
                 
                 <div className="mt-4 pt-4 border-t border-blue-200">
                   <p className="text-xs text-blue-700">
-                    This card can be used to access healthcare services across all government hospitals and registered private facilities.
+                    This card can be used to access healthcare services across all hospitals and registered private facilities.
                   </p>
                 </div>
                 

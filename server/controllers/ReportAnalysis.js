@@ -29,6 +29,11 @@ Format the response as a JSON object with the following structure:
   "healthStatus": "Good/Fair/Poor"
 }`;
 
+// Function to check if a URL points to a PDF file
+function isPdfUrl(url) {
+    return url.toLowerCase().endsWith('.pdf');
+}
+
 // Function to extract text from PDF documents
 async function extractTextFromPdf(pdfUrl) {
     try {
@@ -36,7 +41,7 @@ async function extractTextFromPdf(pdfUrl) {
         const data = await pdf(response.data);
         return data.text;
     } catch (error) {
-        console.error("Error in PDF parsing:", error);
+        // console.error("Error in PDF parsing:", error);
         return "";
     }
 }
@@ -45,26 +50,35 @@ async function extractTextFromPdf(pdfUrl) {
 async function analyzeReports(pdfUrls) {
     try {
         let fullPrompt = prompt;
-        
-        // Process each PDF and add its text to the prompt
+
+        // Process each PDF and add its text to the prompt only if it's a PDF
         for (let i = 0; i < pdfUrls.length; i++) {
-            try {
-                const text = await extractTextFromPdf(pdfUrls[i]);
-                if (text) {
-                    fullPrompt += `\n\nFile ${i+1}:\n${text}\n`;
+            const url = pdfUrls[i];
+            console.log("url given :",url);
+            
+            if (isPdfUrl(url)) {
+                try {
+                    const text = await extractTextFromPdf(url);
+                    if (text) {
+                        fullPrompt += `\n\nFile ${i + 1}:\n${text}\n`;
+                    }
+                    console.log("random  : ",text);
+                    
+                } catch (error) {
+                    console.error(`Error processing PDF ${i + 1}:`, error);
                 }
-            } catch (error) {
-                console.error(`Error processing PDF ${i+1}:`, error);
+            } else {
+                console.log(`Skipped non-PDF file: ${url}`);
             }
         }
-        
+
         // Generate analysis using Google's Generative AI
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: fullPrompt }] }]
         });
-        
+
         const responseText = result.response.text();
-        
+
         // Try to parse the response as JSON
         try {
             // Extract JSON from the response (in case there's additional text)
@@ -73,7 +87,7 @@ async function analyzeReports(pdfUrls) {
                 const jsonStr = jsonMatch[0];
                 return JSON.parse(jsonStr);
             }
-            
+
             // If no JSON format is found, create a structured response
             return {
                 summary: responseText,
@@ -81,8 +95,8 @@ async function analyzeReports(pdfUrls) {
                 healthIssues: []
             };
         } catch (parseError) {
-            console.error("Error parsing AI response as JSON:", parseError);
-            
+            // console.error("Error parsing AI response as JSON:", parseError);
+
             // Return a basic structure with the full text as summary
             return {
                 summary: responseText,
@@ -91,7 +105,7 @@ async function analyzeReports(pdfUrls) {
             };
         }
     } catch (error) {
-        console.error("Error in Gemini AI analysis:", error);
+        // console.error("Error in Gemini AI analysis:", error);
         throw error;
     }
 }
@@ -101,8 +115,6 @@ exports.getReportSummary = async (req, res) => {
     try {
         const userId = req.params.userId;
 
-        console.log(userId)
-
         // Verify user exists and matches the authenticated user
         if (req.user.id !== userId && req.user.accountType !== 'Doctor') {
             return res.status(403).json({
@@ -111,11 +123,9 @@ exports.getReportSummary = async (req, res) => {
             });
         }
 
-        console.log("1")
         // Get user with their documents
         const user = await User.findById(userId);
 
-        console.log(user)
 
         if (!user) {
             return res.status(404).json({
@@ -129,7 +139,6 @@ exports.getReportSummary = async (req, res) => {
             doc.category === 'medical_report' || doc.category === 'lab_result' || doc.category === 'prescription'
         ).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)).slice(0, 10);
 
-        console.log("3 ",medicalDocuments)
 
         if (!medicalDocuments || medicalDocuments.length === 0) {
             return res.status(404).json({
@@ -141,12 +150,10 @@ exports.getReportSummary = async (req, res) => {
         // Extract document URLs for analysis
         const documentUrls = medicalDocuments.map(doc => doc.fileUrl);
 
-        console.log("4 ",documentUrls)
+        console.log("4 hello",documentUrls)
 
         // Analyze the reports
         const analysis = await analyzeReports(documentUrls);
-
-        console.log("5",analysis)
 
         return res.status(200).json({
             success: true,
@@ -154,7 +161,7 @@ exports.getReportSummary = async (req, res) => {
             summary: analysis
         });
     } catch (error) {
-        console.error("Error in getReportSummary:", error);
+        // console.error("Error in getReportSummary:", error);
         return res.status(500).json({
             success: false,
             message: "Failed to analyze reports",

@@ -26,12 +26,12 @@ const Header = ({
 
           <Link to="/" className="flex items-center">
             <img
-              src="https://upload.wikimedia.org/wikipedia/commons/5/55/Emblem_of_India.svg"
+              src="https://res.cloudinary.com/dyg2kv4z4/image/upload/v1760036497/Med1plus_nbuahc.png"
               alt="National Emblem"
               className="h-10 mr-3"
             />
             <div>
-              <h1 className="text-xl font-bold text-blue-900">MediSecure</h1>
+              <h1 className="text-xl font-bold text-blue-900">Med1Plus</h1>
               <p className="text-xs text-gray-600">Healthcare Professional Portal</p>
             </div>
           </Link>

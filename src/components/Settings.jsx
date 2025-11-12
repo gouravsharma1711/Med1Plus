@@ -299,7 +299,6 @@ const Settings = () => {
     <div onClick={closeSidebarOnClickOutside} className="min-h-screen bg-gray-50 flex flex-col">
       {/* National Emblem and Header */}
       <div className="bg-blue-900 text-white py-1 text-center text-xs">
-        Government of India | Ministry of Health and Family Welfare
       </div>
 
       <header className="bg-white shadow-md py-3 sticky top-0 z-40">
@@ -314,13 +313,13 @@ const Settings = () => {
 
             <Link to="/" className="flex items-center">
               <img
-                src="https://upload.wikimedia.org/wikipedia/commons/5/55/Emblem_of_India.svg"
+                src="https://res.cloudinary.com/dyg2kv4z4/image/upload/v1760036497/Med1plus_nbuahc.png"
                 alt="National Emblem"
                 className="h-10 mr-3"
               />
               <div>
-                <h1 className="text-xl font-bold text-blue-900">MediSecure</h1>
-                <p className="text-xs text-gray-600">National Health Records System</p>
+                <h1 className="text-xl font-bold text-blue-900">Medi1Plus</h1>
+                <p className="text-xs text-gray-600">Medical Health Records System</p>
               </div>
             </Link>
           </div>

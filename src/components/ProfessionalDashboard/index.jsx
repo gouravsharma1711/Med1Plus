@@ -117,7 +117,7 @@ const ProfessionalDashboard = () => {
     <div onClick={closeSidebarOnClickOutside} className="min-h-screen bg-gray-50 flex flex-col">
       {/* National Emblem and Header */}
       <div className="bg-blue-900 text-white py-1 text-center text-xs">
-        Government of India | Ministry of Health and Family Welfare
+        Smart Healthcare System
       </div>
 
       {/* Header */}

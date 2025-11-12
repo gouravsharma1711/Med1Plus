@@ -299,7 +299,7 @@ const SimpleArogyaNetraCard = () => {
   };
 
   return (
-    <div className="mb-8">
+    <div className="mb-8 ">
       <div className="bg-white rounded-lg shadow-md overflow-hidden border border-blue-200">
         <div className="p-4 bg-gradient-to-r from-blue-600 to-blue-800 border-b border-blue-200">
           <div className="flex justify-between items-center">
@@ -336,14 +336,13 @@ const SimpleArogyaNetraCard = () => {
                       <div className="flex items-center">
                         <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mr-4 shadow-md">
                           <img
-                            src="https://upload.wikimedia.org/wikipedia/commons/5/55/Emblem_of_India.svg"
+                            src="https://res.cloudinary.com/dyg2kv4z4/image/upload/v1760036497/Med1plus_nbuahc.png"
                             alt="National Emblem"
-                            className="w-10 h-10"
+                            className=""
                           />
                         </div>
                         <div>
                           <h3 className="text-xl font-bold">AROGYA NETRA CARD</h3>
-                          <p className="text-xs">Government of India | Ministry of Health and Family Welfare</p>
                         </div>
                       </div>
                     </div>

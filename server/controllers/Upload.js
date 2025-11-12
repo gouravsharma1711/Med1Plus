@@ -24,7 +24,6 @@ const uploadFiles = async (req, res) => {
             folder: `uploads/${folderName}`,
             resource_type: 'auto', // Automatically determine the file type (image, pdf, etc.)
           });
-
           // Get category for this file (if provided)
           let category = "other";
           if (categories && Array.isArray(categories) && categories[i]) {
