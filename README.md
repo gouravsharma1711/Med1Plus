@@ -1,4 +1,4 @@
-# MediSecure 
+# Med1Plus
 This project is a healthcare support website designed to make patient treatment faster and more effective in critical situations. In emergencies, doctors often struggle to access a patient’s medical history, which leads to delays and repeated full-body tests before making important decisions. This platform solves that problem by allowing healthcare providers to instantly fetch a user’s previous medical records through face recognition technology.
 
 When a patient arrives at the hospital, their face can be scanned through the system. The platform then quickly identifies the patient and securely retrieves their past medical details such as previous illnesses, surgeries, allergies, and test results. This gives doctors immediate access to vital information without wasting precious time.
