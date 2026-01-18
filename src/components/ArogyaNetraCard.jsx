@@ -255,7 +255,7 @@ const ArogyaNetraCard = () => {
                   </p>
                 </div>
                 
-                <div className="mt-4">
+                {/* <div className="mt-4">
                   <button 
                     onClick={downloadCard}
                     disabled={isGenerating}
@@ -263,7 +263,7 @@ const ArogyaNetraCard = () => {
                   >
                     <FaDownload className="mr-2" /> Download Card
                   </button>
-                </div>
+                </div> */}
               </div>
             </div>
           )}

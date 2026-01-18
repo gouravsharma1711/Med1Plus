@@ -13,10 +13,32 @@ const Tesseract = require('tesseract.js');
 const pdfParse = require('pdf-parse');
 const axios = require('axios');
 const twilio = require('twilio');
+let tf = null;
+let tfAvailable = false;
+try {
+  tf = require('@tensorflow/tfjs-node');
+  tfAvailable = true;
+  console.log('Using @tensorflow/tfjs-node backend in Auth controller');
+} catch (e1) {
+  try {
+    tf = require('@tensorflow/tfjs');
+    tfAvailable = true;
+    console.warn('Using @tensorflow/tfjs (JS backend) in Auth controller. Install @tensorflow/tfjs-node for better performance.');
+  } catch (e2) {
+    tf = null;
+    tfAvailable = false;
+    console.warn('@tensorflow/tfjs-node and @tensorflow/tfjs not found in Auth controller. Face APIs will error if called.');
+  }
+}
 const faceapi = require('face-api.js');
 const canvas = require('canvas');
-const { Canvas, Image, ImageData } = require('canvas');
-const { createCanvas, loadImage } = require('canvas'); // This is to create the image in canvas format
+const { Canvas, Image, ImageData, createCanvas, loadImage } = require('canvas'); // node-canvas helpers
+
+// Monkey-patch face-api environment so it can use node-canvas with face-api.js
+faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+
+// Ensure face-api uses the resolved tf implementation
+try { if (tf) { faceapi.tf = tf; } } catch (e) { console.warn('Could not set faceapi.tf in Auth controller:', e.message); }
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

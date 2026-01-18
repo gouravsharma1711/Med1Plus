@@ -1,158 +1,186 @@
 const axios = require('axios');
 const pdf = require('pdf-parse');
+const Tesseract = require('tesseract.js');
+const canvas = require('canvas');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const User = require("../models/User");
 require('dotenv').config();
 
-// Initialize Google Generative AI
-const genAI = new GoogleGenerativeAI(`${process.env.GEMINI_API_KEY}`);
-const model = genAI.getGenerativeModel({model: "gemini-2.0-flash"});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// Prompt template for medical report analysis
-const prompt = `Analyze the given medical report and identify any potential health issues, diseases, or risks associated with the patient. Present only the detected health issues in a structured tabular format with the following columns: Disease/Risk, Severity (Mild/Moderate/Severe), Possible Causes, and Suggested Precautions/Treatment.
-If no health issues are detected, do not extract any data from the report.
-At the end, provide a concise summary of the patient's current health status in simple and understandable language, offering a quick review of their overall condition.
-
-Also, provide an overall health status assessment (Good, Fair, or Poor) based on the findings.
-
-Format the response as a JSON object with the following structure:
+const prompt = `
+Analyze the given medical report and identify any potential health issues, diseases, or risks. 
+Present only detected health issues in JSON format:
 {
   "healthIssues": [
     {
-      "disease": "Disease name",
-      "severity": "Mild/Moderate/Severe",
-      "causes": "Possible causes",
-      "treatment": "Suggested precautions/treatment"
+      "disease": "",
+      "severity": "",
+      "causes": "",
+      "treatment": ""
     }
   ],
-  "summary": "Concise summary of health status",
-  "healthStatus": "Good/Fair/Poor"
+  "summary": "",
+  "healthStatus": ""
 }`;
 
-// Function to check if a URL points to a PDF file
 function isPdfUrl(url) {
-    return url.toLowerCase().endsWith('.pdf');
+    const lower = url.toLowerCase();
+
+    return (
+        lower.endsWith(".pdf") ||               // Normal PDF
+        lower.includes("/raw/upload/") ||       // Cloudinary raw resource type
+        lower.includes("application/pdf")       // Rare cases with direct MIME indication
+    );
 }
 
-// Function to extract text from PDF documents
 async function extractTextFromPdf(pdfUrl) {
     try {
-        const response = await axios.get(pdfUrl, { responseType: 'arraybuffer' });
-        const data = await pdf(response.data);
-        return data.text;
-    } catch (error) {
-        // console.error("Error in PDF parsing:", error);
-        return "";
+        console.log("I'm getting url : ",pdfUrl);
+        
+        const response = await axios.get(pdfUrl, {
+            responseType: 'arraybuffer',
+            timeout: 15000,
+            maxContentLength: 50 * 1024 * 1024
+        });
+        // console.log("here is the response : ",response);
+        
+
+        const contentType = (response.headers?.['content-type'] || '').toLowerCase();
+        
+        
+        const buffer = Buffer.from(response.data);
+        const data = await pdf(buffer);
+        console.log("response.data here ",data);
+
+        if (data?.text?.trim()) return data.text;
+
+        const loadingTask = pdfjsLib.getDocument({ data: buffer });
+        const pdfDoc = await loadingTask.promise;
+
+        let ocrText = '';
+        const pagesToProcess = Math.min(2, pdfDoc.numPages);
+
+        for (let p = 1; p <= pagesToProcess; p++) {
+            try {
+                const page = await pdfDoc.getPage(p);
+                const viewport = page.getViewport({ scale: 1.5 });
+                const renderCanvas = canvas.createCanvas(viewport.width, viewport.height);
+                const renderContext = {
+                    canvasContext: renderCanvas.getContext('2d'),
+                    viewport
+                };
+
+                await page.render(renderContext).promise;
+                const pngBuffer = renderCanvas.toBuffer('image/png');
+
+                const { data: { text } } = await Tesseract.recognize(pngBuffer, 'eng');
+                if (text?.trim()) ocrText += text.trim() + "\n";
+            } catch {}
+        }
+
+        return ocrText.trim();
+    } catch {
+        return '';
     }
 }
 
-// Function to analyze medical reports using Google's Generative AI
 async function analyzeReports(pdfUrls) {
     try {
+        
+        
         let fullPrompt = prompt;
-
-        // Process each PDF and add its text to the prompt only if it's a PDF
+        let extractedAny = false;
+        
         for (let i = 0; i < pdfUrls.length; i++) {
             const url = pdfUrls[i];
-            console.log("url given :",url);
             
-            if (isPdfUrl(url)) {
-                try {
-                    const text = await extractTextFromPdf(url);
-                    if (text) {
-                        fullPrompt += `\n\nFile ${i + 1}:\n${text}\n`;
-                    }
-                    console.log("random  : ",text);
-                    
-                } catch (error) {
-                    console.error(`Error processing PDF ${i + 1}:`, error);
-                }
-            } else {
-                console.log(`Skipped non-PDF file: ${url}`);
+
+            if (!isPdfUrl(url)) continue;
+
+            const text = await extractTextFromPdf(url);
+            if (text?.trim()) {
+                extractedAny = true;
+                fullPrompt += `\n\nReport ${i + 1}:\n${text}\n`;
             }
         }
 
-        // Generate analysis using Google's Generative AI
+        if (!extractedAny) {
+            return {
+                summary: '',
+                healthStatus: 'Unknown',
+                healthIssues: [],
+                note: 'No text extracted from provided PDF files.'
+            };
+        }
+
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: fullPrompt }] }]
         });
 
         const responseText = result.response.text();
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
-        // Try to parse the response as JSON
-        try {
-            // Extract JSON from the response (in case there's additional text)
-            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const jsonStr = jsonMatch[0];
-                return JSON.parse(jsonStr);
+        if (jsonMatch) {
+            try {
+                return JSON.parse(jsonMatch[0]);
+            } catch {
+                return {
+                    summary: responseText,
+                    healthStatus: "Unknown",
+                    healthIssues: []
+                };
             }
-
-            // If no JSON format is found, create a structured response
-            return {
-                summary: responseText,
-                healthStatus: "Unknown",
-                healthIssues: []
-            };
-        } catch (parseError) {
-            // console.error("Error parsing AI response as JSON:", parseError);
-
-            // Return a basic structure with the full text as summary
-            return {
-                summary: responseText,
-                healthStatus: "Unknown",
-                healthIssues: []
-            };
         }
+
+        return {
+            summary: responseText,
+            healthStatus: "Unknown",
+            healthIssues: []
+        };
     } catch (error) {
-        // console.error("Error in Gemini AI analysis:", error);
         throw error;
     }
 }
 
-// Controller function to get report summary for a user
 exports.getReportSummary = async (req, res) => {
     try {
         const userId = req.params.userId;
 
-        // Verify user exists and matches the authenticated user
-        if (req.user.id !== userId && req.user.accountType !== 'Doctor') {
+        if (req.user.id !== userId) {
             return res.status(403).json({
                 success: false,
                 message: "You don't have permission to access this user's reports"
             });
         }
 
-        // Get user with their documents
         const user = await User.findById(userId);
-
 
         if (!user) {
             return res.status(404).json({
                 success: false,
-                message: "User not found"                                               
+                message: "User not found"
             });
         }
 
-        // Filter for medical reports and lab results
-        const medicalDocuments = user.documents.filter(doc =>
-            doc.category === 'medical_report' || doc.category === 'lab_result' || doc.category === 'prescription'
-        ).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt)).slice(0, 10);
+        const medicalDocuments = user.documents
+            .filter(doc => 
+                doc.category === 'medical_report' ||
+                doc.category === 'lab_result' ||
+                doc.category === 'prescription'
+            )
+            .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))
+            .slice(0, 10);
 
-
-        if (!medicalDocuments || medicalDocuments.length === 0) {
+        if (!medicalDocuments.length) {
             return res.status(404).json({
                 success: false,
                 message: "No medical reports found for analysis"
             });
         }
 
-        // Extract document URLs for analysis
         const documentUrls = medicalDocuments.map(doc => doc.fileUrl);
-
-        console.log("4 hello",documentUrls)
-
-        // Analyze the reports
         const analysis = await analyzeReports(documentUrls);
 
         return res.status(200).json({
@@ -161,7 +189,6 @@ exports.getReportSummary = async (req, res) => {
             summary: analysis
         });
     } catch (error) {
-        // console.error("Error in getReportSummary:", error);
         return res.status(500).json({
             success: false,
             message: "Failed to analyze reports",

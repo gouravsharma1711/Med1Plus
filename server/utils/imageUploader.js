@@ -1,6 +1,8 @@
 const cloudinary = require('cloudinary').v2;  // Ensure you have cloudinary initialized
 
 exports.uploadImageToCloudinary = async (file, folder, height, quality) => {
+    console.log("here is the file object : ",file);
+    
     const options = {
         folder: folder,  // Cloudinary folder
         resource_type: 'auto',  // Auto-detect file type (image, video, pdf, etc.)

@@ -7,22 +7,27 @@ const fs = require('fs');
 // Upload a document for the user
 const uploadFiles = async (req, res) => {
   try {
+    
     const userId = req.params.userId; // User ID from URL
     const files = req.files; // Assuming files come from a form with multipart/form-data (via multer or similar)
     const { categories } = req.body; // Get categories from request body
-
-    console.log(files);
     // Get today's date to organize the folder
     const folderName = moment().format('YYYY-MM-DD');
     const fileUrls = [];
-
+    
+    
     // Upload files to Cloudinary
     if(Array.isArray(files.files)){
         for (let i = 0; i < files.files.length; i++) {
           const file = files.files[i];
+          
+          let resouceType='auto';
+          if(file.mimetype==='application/pdf'){
+            resouceType='raw';
+          }
           const uploadedFile = await cloudinary.uploader.upload(file.tempFilePath, {
             folder: `uploads/${folderName}`,
-            resource_type: 'auto', // Automatically determine the file type (image, pdf, etc.)
+            resource_type: resouceType, // Automatically determine the file type (image, pdf, etc.)
           });
           // Get category for this file (if provided)
           let category = "other";
@@ -45,9 +50,13 @@ const uploadFiles = async (req, res) => {
     else{
         // Handle single file upload (if only one file is uploaded)
       const file = files.files;
+      let resouceType='auto';
+        if(file.mimetype==='application/pdf'){
+          resouceType='raw';
+        }
       const uploadedFile = await cloudinary.uploader.upload(file.tempFilePath, {
         folder: `uploads/${folderName}`,
-        resource_type: 'auto',
+        resource_type: resouceType,
       });
 
       // Get category for this file

@@ -1,6 +1,24 @@
 const express = require("express");
 const app = express();
-// require('@tensorflow/tfjs-node');
+let tf = null;
+let tfAvailable = false;
+let tfIsNode = false;
+try {
+  tf = require('@tensorflow/tfjs-node');
+  tfAvailable = true;
+  tfIsNode = true;
+  console.log('Using @tensorflow/tfjs-node backend');
+} catch (e1) {
+  try {
+    tf = require('@tensorflow/tfjs');
+    tfAvailable = true;
+    console.warn('Using @tensorflow/tfjs (JS backend). Install @tensorflow/tfjs-node for much better performance.');
+  } catch (e2) {
+    tf = null;
+    tfAvailable = false;
+    console.warn('@tensorflow/tfjs-node and @tensorflow/tfjs not found. Face recognition endpoints will return informative errors.');
+  }
+}
 const faceapi = require("face-api.js");
 const userRoutes = require("./routes/User");
 const uploadRoutes = require("./routes/Upload");
@@ -12,8 +30,26 @@ const { cloudinaryConnect } = require("./config/cloudinary");
 const dotenv = require("dotenv");
 const fileUpload = require("express-fileupload");
 const cloudinary = require("cloudinary").v2;
-const { Canvas, Image } = require("canvas");
 const canvas = require("canvas");
+const { Canvas, Image, ImageData } = canvas;
+
+// Monkey-patch face-api environment so it can use node-canvas with face-api.js
+faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+
+// Ensure face-api uses the resolved tf implementation
+try { if (tf) { faceapi.tf = tf; } } catch (e) { console.warn('Could not set faceapi.tf:', e.message); }
+
+// Helper to get a tensor from a node-canvas element using the available backend
+function tfFromPixels(canvasEl) {
+  if (!tfAvailable) throw new Error('No TensorFlow backend available. Install @tensorflow/tfjs-node or @tensorflow/tfjs.');
+  if (faceapi.tf && faceapi.tf.node && typeof faceapi.tf.node.fromPixels === 'function') {
+    return faceapi.tf.node.fromPixels(canvasEl);
+  }
+  if (faceapi.tf && faceapi.tf.browser && typeof faceapi.tf.browser.fromPixels === 'function') {
+    return faceapi.tf.browser.fromPixels(canvasEl);
+  }
+  throw new Error('No suitable fromPixels function available on the TensorFlow backend');
+}
 
 const User = require("./models/User");
 const fs = require("fs").promises; // Use fs.promises for async/await
@@ -49,6 +85,14 @@ const loadModels = async () => {
 
 loadModels().then(() => {
   console.log('Face recognition system initialized.');
+});
+
+// Prevent process exit on unhandled rejections during development; log them clearly
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
 });
 
 // Optimized Image Loading Helper
@@ -209,6 +253,12 @@ const IMAGE_LOAD_TIMEOUT = 10000; // 10 seconds for the image load timeout
 
 // Enhanced face recognition endpoint with better accuracy and performance
 app.post('/api/v1/recognize', async (req, res) => {
+  if (!tfAvailable) {
+    return res.status(503).json({
+      success: false,
+      message: 'TensorFlow backend not available. Install @tensorflow/tfjs-node (recommended) or @tensorflow/tfjs and restart the server.'
+    });
+  }
   console.time('faceRecognitionTotal');
   try {
     if (!req.files || !req.files.photo) {
@@ -228,8 +278,8 @@ app.post('/api/v1/recognize', async (req, res) => {
     // Optimize image size before processing - use smaller size for faster processing
     const img = await loadImageFromBuffer(data);
 
-    // Resize large images for faster processing - reduced from 1024 to 640
-    const MAX_SIZE = 640; // Maximum dimension for processing
+    // Resize large images for faster processing; use smaller sizes on JS backend
+    const MAX_SIZE = tfIsNode ? 640 : 480; // Maximum dimension for processing
     let width = img.width;
     let height = img.height;
 
@@ -251,18 +301,30 @@ app.post('/api/v1/recognize', async (req, res) => {
     console.timeEnd('imageProcessing');
 
     console.time('faceDetection');
-    // Use SSD MobileNet first for better accuracy
-    const tensor = faceapi.tf.browser.fromPixels(nodeCanvas);
-    let detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options())
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+    // Choose detector based on backend: use SSD on native tfjs-node, Tiny on JS backend for speed
+    const tensor = tfFromPixels(nodeCanvas);
+    let detection = null;
+    try {
+      if (tfIsNode) {
+        detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+      } else {
+        // JS backend: use TinyFaceDetector for much better speed, with moderate inputSize
+        detection = await faceapi.detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
 
-    // If no face detected with SSD MobileNet, try with TinyFaceDetector as fallback
-    if (!detection) {
-      console.log('No face detected with SSD MobileNet, trying TinyFaceDetector as fallback...');
-      detection = await faceapi.detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions({
-        scoreThreshold: 0.3 // Lower threshold to detect more faces
-      })).withFaceLandmarks().withFaceDescriptor();
+        // Fallback to SSD only if Tiny failed
+        if (!detection) {
+          detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+        }
+      }
+    } finally {
+      // dispose input tensor to free memory
+      try { if (tensor && typeof tensor.dispose === 'function') tensor.dispose(); } catch (e) { /* ignore */ }
     }
     console.timeEnd('faceDetection');
 
@@ -316,11 +378,26 @@ app.post('/api/v1/recognize', async (req, res) => {
                 const dbCtx = dbCanvas.getContext("2d");
                 dbCtx.drawImage(loadedImage, 0, 0, width, height);
 
-                const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-                // Use SSD MobileNet for better accuracy during preloading
-                const dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-                  .withFaceLandmarks()
-                  .withFaceDescriptor();
+                const dbTensor = tfFromPixels(dbCanvas);
+                let dbDetection = null;
+                try {
+                  if (tfIsNode) {
+                    dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                      .withFaceLandmarks()
+                      .withFaceDescriptor();
+                  } else {
+                    dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+                      .withFaceLandmarks()
+                      .withFaceDescriptor();
+                    if (!dbDetection) {
+                      dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                        .withFaceLandmarks()
+                        .withFaceDescriptor();
+                    }
+                  }
+                } finally {
+                  try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
+                }
 
                 if (dbDetection) {
                   faceDescriptorCache.set(`descriptor_${user._id}`, dbDetection.descriptor);
@@ -476,8 +553,8 @@ async function findMatchingUser(users, detectedDescriptor) {
           const imageBuffer = await fetchImage(user.image);
           const loadedImage = await loadImageFromBuffer(imageBuffer);
 
-          // Use larger image size for better accuracy
-          const MAX_SIZE = 640; // Increased from 480 to 640 for better accuracy
+          // Use larger image size for better accuracy on native backend, smaller on JS backend
+          const MAX_SIZE = tfIsNode ? 640 : 480;
           let width = loadedImage.width;
           let height = loadedImage.height;
 
@@ -496,17 +573,26 @@ async function findMatchingUser(users, detectedDescriptor) {
           const dbCtx = dbCanvas.getContext("2d");
           dbCtx.drawImage(loadedImage, 0, 0, width, height);
 
-          // Try SSD MobileNet first for better accuracy
-          const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-          let dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-            .withFaceLandmarks()
-            .withFaceDescriptor();
-
-          // If no face detected with SSD MobileNet, try with TinyFaceDetector
-          if (!dbDetection) {
-            dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({
-              scoreThreshold: 0.3
-            })).withFaceLandmarks().withFaceDescriptor();
+          // Choose detector based on backend (Tiny for JS backend for speed)
+          const dbTensor = tfFromPixels(dbCanvas);
+          let dbDetection = null;
+          try {
+            if (tfIsNode) {
+              dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            } else {
+              dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+              if (!dbDetection) {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+              }
+            }
+          } finally {
+            try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
           }
 
           if (dbDetection) {
@@ -582,6 +668,12 @@ async function findMatchingUser(users, detectedDescriptor) {
 
 // Preload user images and compute face descriptors for faster recognition
 app.get('/api/v1/preload-user-images', async (req, res) => {
+  if (!tfAvailable) {
+    return res.status(503).json({
+      success: false,
+      message: 'TensorFlow backend not available. Install @tensorflow/tfjs-node (recommended) or @tensorflow/tfjs and restart the server.'
+    });
+  }
   try {
     console.log('Preloading user images and computing face descriptors...');
     const users = await User.find({}, 'firstName lastName image _id').exec();
@@ -642,17 +734,26 @@ app.get('/api/v1/preload-user-images', async (req, res) => {
             const dbCtx = dbCanvas.getContext("2d");
             dbCtx.drawImage(loadedImage, 0, 0, width, height);
 
-            // Try with TinyFaceDetector first (faster)
-            const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-            let dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions())
-              .withFaceLandmarks()
-              .withFaceDescriptor();
-
-            // If no face detected, try with SSD MobileNet
-            if (!dbDetection) {
-              dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-                .withFaceLandmarks()
-                .withFaceDescriptor();
+            // Choose detector based on backend
+            const dbTensor = tfFromPixels(dbCanvas);
+            let dbDetection = null;
+            try {
+              if (tfIsNode) {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+              } else {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+                if (!dbDetection) {
+                  dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+                }
+              }
+            } finally {
+              try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
             }
 
             if (dbDetection) {
@@ -719,6 +820,12 @@ app.post('/api/v1/clear-face-cache', (req, res) => {
 
 // Endpoint to test face recognition with different thresholds (for accuracy tuning)
 app.post('/api/v1/test-recognition', async (req, res) => {
+  if (!tfAvailable) {
+    return res.status(503).json({
+      success: false,
+      message: 'TensorFlow backend not available. Install @tensorflow/tfjs-node (recommended) or @tensorflow/tfjs and restart the server.'
+    });
+  }
   try {
     if (!req.files || !req.files.photo) {
       return res.status(400).json({
@@ -742,16 +849,46 @@ app.post('/api/v1/test-recognition', async (req, res) => {
     const data = await fs.readFile(filePath);
     const img = await loadImageFromBuffer(data);
 
-    // Create canvas and draw image
-    const nodeCanvas = canvas.createCanvas(img.width, img.height);
-    const ctx = nodeCanvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, img.width, img.height);
+    // Resize for faster processing depending on backend
+    const MAX_SIZE = tfIsNode ? 640 : 480;
+    let width = img.width;
+    let height = img.height;
+    if (width > MAX_SIZE || height > MAX_SIZE) {
+      if (width > height) {
+        height = Math.floor(height * (MAX_SIZE / width));
+        width = MAX_SIZE;
+      } else {
+        width = Math.floor(width * (MAX_SIZE / height));
+        height = MAX_SIZE;
+      }
+    }
 
-    // Use SSD MobileNet for better accuracy
-    const tensor = faceapi.tf.browser.fromPixels(nodeCanvas);
-    const detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options())
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+    // Create canvas and draw image
+    const nodeCanvas = canvas.createCanvas(width, height);
+    const ctx = nodeCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, width, height);
+
+    // Detect using appropriate detector for backend
+    const tensor = tfFromPixels(nodeCanvas);
+    let detection = null;
+    try {
+      if (tfIsNode) {
+        detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+      } else {
+        detection = await faceapi.detectSingleFace(tensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+        if (!detection) {
+          detection = await faceapi.detectSingleFace(tensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+        }
+      }
+    } finally {
+      try { if (tensor && typeof tensor.dispose === 'function') tensor.dispose(); } catch (e) { }
+    }
 
     if (!detection) {
       return res.status(404).json({
@@ -785,10 +922,26 @@ app.post('/api/v1/test-recognition', async (req, res) => {
       const dbCtx = dbCanvas.getContext("2d");
       dbCtx.drawImage(loadedImage, 0, 0, loadedImage.width, loadedImage.height);
 
-      const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-      const dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      const dbTensor = tfFromPixels(dbCanvas);
+      let dbDetection = null;
+      try {
+        if (tfIsNode) {
+          dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+        } else {
+          dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+          if (!dbDetection) {
+            dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+              .withFaceLandmarks()
+              .withFaceDescriptor();
+          }
+        }
+      } finally {
+        try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
+      }
 
       if (!dbDetection) {
         return res.status(404).json({
@@ -838,6 +991,12 @@ app.post('/api/v1/test-recognition', async (req, res) => {
 
 // Endpoint to refresh descriptors for specific users
 app.post('/api/v1/refresh-user-descriptors', async (req, res) => {
+  if (!tfAvailable) {
+    return res.status(503).json({
+      success: false,
+      message: 'TensorFlow backend not available. Install @tensorflow/tfjs-node (recommended) or @tensorflow/tfjs and restart the server.'
+    });
+  }
   try {
     if (!req.body || !req.body.userIds || !Array.isArray(req.body.userIds)) {
       return res.status(400).json({
@@ -888,16 +1047,25 @@ app.post('/api/v1/refresh-user-descriptors', async (req, res) => {
           const dbCtx = dbCanvas.getContext("2d");
           dbCtx.drawImage(loadedImage, 0, 0, width, height);
 
-          const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-          // Use SSD MobileNet for better accuracy
-          let dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-            .withFaceLandmarks()
-            .withFaceDescriptor();
-
-          if (!dbDetection) {
-            dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-              .withFaceLandmarks()
-              .withFaceDescriptor();
+          const dbTensor = tfFromPixels(dbCanvas);
+          let dbDetection = null;
+          try {
+            if (tfIsNode) {
+              dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            } else {
+              dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+              if (!dbDetection) {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+              }
+            }
+          } finally {
+            try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
           }
 
           if (dbDetection) {
@@ -967,11 +1135,26 @@ app.listen(PORT, () => {
             const dbCtx = dbCanvas.getContext("2d");
             dbCtx.drawImage(loadedImage, 0, 0, width, height);
 
-            const dbTensor = faceapi.tf.browser.fromPixels(dbCanvas);
-            // Use SSD MobileNet for better accuracy
-            const dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options())
-              .withFaceLandmarks()
-              .withFaceDescriptor();
+            const dbTensor = tfFromPixels(dbCanvas);
+            let dbDetection = null;
+            try {
+              if (tfIsNode) {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+              } else {
+                dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.35 }))
+                  .withFaceLandmarks()
+                  .withFaceDescriptor();
+                if (!dbDetection) {
+                  dbDetection = await faceapi.detectSingleFace(dbTensor, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+                }
+              }
+            } finally {
+              try { if (dbTensor && typeof dbTensor.dispose === 'function') dbTensor.dispose(); } catch (e) { }
+            }
 
             if (dbDetection) {
               faceDescriptorCache.set(`descriptor_${user._id}`, dbDetection.descriptor);
