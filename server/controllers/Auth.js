@@ -13,8 +13,32 @@ const Tesseract = require('tesseract.js');
 const pdfParse = require('pdf-parse');
 const axios = require('axios');
 const twilio = require('twilio');
-const { faceapi, tf, tfAvailable, canvas } = require("../utils/faceApi");
-const { createCanvas, loadImage } = canvas;
+let tf = null;
+let tfAvailable = false;
+try {
+  tf = require('@tensorflow/tfjs-node');
+  tfAvailable = true;
+  console.log('Using @tensorflow/tfjs-node backend in Auth controller');
+} catch (e1) {
+  try {
+    tf = require('@tensorflow/tfjs');
+    tfAvailable = true;
+    console.warn('Using @tensorflow/tfjs (JS backend) in Auth controller. Install @tensorflow/tfjs-node for better performance.');
+  } catch (e2) {
+    tf = null;
+    tfAvailable = false;
+    console.warn('@tensorflow/tfjs-node and @tensorflow/tfjs not found in Auth controller. Face APIs will error if called.');
+  }
+}
+const faceapi = require('face-api.js');
+const canvas = require('canvas');
+const { Canvas, Image, ImageData, createCanvas, loadImage } = require('canvas'); // node-canvas helpers
+
+// Monkey-patch face-api environment so it can use node-canvas with face-api.js
+faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+
+// Ensure face-api uses the resolved tf implementation
+try { if (tf) { faceapi.tf = tf; } } catch (e) { console.warn('Could not set faceapi.tf in Auth controller:', e.message); }
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -26,17 +50,8 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Twilio Client Setup
-let twilioClient;
-try {
-  if (process.env.TWILIO_KEY1 && process.env.TWILIO_KEY1.startsWith('AC')) {
-    twilioClient = twilio(process.env.TWILIO_KEY1, process.env.TWILIO_KEY2);
-  } else {
-    console.warn('Twilio keys are missing or invalid. SMS/Whatsapp features will not work.');
-  }
-} catch (error) {
-  console.warn('Twilio initialization failed:', error.message);
-}
+// Twilio Client Setup (replace with your credentials)
+const twilioClient = twilio(`${process.env.TWILIO_KEY1}`, `${process.env.TWILIO_KEY2}`);
 
 const generateOtp = () => {
     return otpGenerator.generate(6,{
@@ -48,10 +63,6 @@ const generateOtp = () => {
 
 const sendSms = async (otp, mobileNumber) => {
     console.log(mobileNumber)
-  if (!twilioClient) {
-    console.error('Twilio client not initialized. Cannot send SMS.');
-    throw new Error('SMS service unavailable');
-  }
   try {
     await twilioClient.messages.create({
       body: `Your OTP code is: ${otp}`,
@@ -75,10 +86,6 @@ const sendEmail = async (otp, email) => {
 };
 
 const sendWhatsapp = async (otp, mobileNumber) => {
-  if (!twilioClient) {
-    console.error('Twilio client not initialized. Cannot send WhatsApp.');
-    throw new Error('WhatsApp service unavailable');
-  }
   try {
     await twilioClient.messages.create({
       body: `Your OTP code is: ${otp}`,
@@ -182,10 +189,9 @@ exports.sendotp = async (req, res) => {
 
 // Load the face-api models (ensure models are stored locally or on cloud storage)
 async function loadFaceApiModels() {
-  const modelsPath = path.join(__dirname, '..', 'frmodels');
-  await faceapi.nets.ssdMobilenetv1.loadFromDisk(modelsPath);
-  await faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath);
-  await faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath);
+  await faceapi.nets.ssdMobilenetv1.loadFromDisk('./frmodels');
+  await faceapi.nets.faceLandmark68Net.loadFromDisk('./frmodels');
+  await faceapi.nets.faceRecognitionNet.loadFromDisk('./frmodels');
 }
 
 // Function to extract face descriptor from an image buffer
