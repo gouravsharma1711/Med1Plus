@@ -129,7 +129,7 @@ const UserDashboard = () => {
 
       try {
         const response = await axios.get(
-          `http://localhost:5000/api/v1/auth/check-profile-status`,
+          `${import.meta.env.VITE_BASE_URL}/api/v1/auth/check-profile-status`,
           {
             headers: {
               "Authorization": `Bearer ${token}`
@@ -186,7 +186,7 @@ const UserDashboard = () => {
 
     try {
       const response = await axios.get(
-        `http://localhost:5000/api/v1/user/get-report-summary/${user._id}`,
+        `${import.meta.env.VITE_BASE_URL}/api/v1/user/get-report-summary/${user._id}`,
         {
           headers: {
             "Authorization": `Bearer ${token}`
@@ -228,7 +228,7 @@ const UserDashboard = () => {
       try {
         const fetchUpdatedDocuments = async () => {
           const response = await axios.get(
-            `http://localhost:5000/api/v1/user/get-documents/${user._id}`,
+            `${import.meta.env.VITE_BASE_URL}/api/v1/user/get-documents/${user._id}`,
             {
               headers: {
                 "Authorization": `Bearer ${token}`
@@ -471,7 +471,7 @@ const UserDashboard = () => {
       setUploadProgress(0);
 
       await axios.post(
-        `http://localhost:5000/api/v1/user/upload/${user._id}`,
+        `${import.meta.env.VITE_BASE_URL}/api/v1/user/upload/${user._id}`,
         formData,
         {
           headers: {
@@ -502,7 +502,7 @@ const UserDashboard = () => {
           const fetchUpdatedDocuments = async () => {
             try {
               const response = await axios.get(
-                `http://localhost:5000/api/v1/user/get-documents/${user._id}`,
+                `${import.meta.env.VITE_BASE_URL}/api/v1/user/get-documents/${user._id}`,
                 {
                   headers: {
                     "Authorization": `Bearer ${token}`
@@ -705,7 +705,7 @@ const UserDashboard = () => {
 
     try {
       const response = await axios.post(
-        'http://localhost:5000/api/v1/user/update-medical-profile',
+        `${import.meta.env.VITE_BASE_URL}/api/v1/user/update-medical-profile',
         profileFormData,
         {
           headers: {

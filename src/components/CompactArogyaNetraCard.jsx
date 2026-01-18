@@ -26,7 +26,7 @@ const CompactArogyaNetraCard = () => {
       const token = JSON.parse(localStorage.getItem("token"));
       
       const response = await axios.post(
-        "http://localhost:5000/api/v1/auth/getArogyaNetraCardId",
+        `${import.meta.env.VITE_BASE_URL}/api/v1/auth/getArogyaNetraCardId`,
         {},
         {
           headers: {
@@ -82,7 +82,7 @@ const CompactArogyaNetraCard = () => {
 
         // If not in Redux, try to get the latest user data from the server
         const userResponse = await axios.get(
-          'http://localhost:5000/api/v1/auth/getUserDetails',
+          `${import.meta.env.VITE_BASE_URL}/api/v1/auth/getUserDetails`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

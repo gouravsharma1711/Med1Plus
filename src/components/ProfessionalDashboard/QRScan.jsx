@@ -25,7 +25,7 @@ const QRScan = ({ setUserDetails, calculateAge }) => {
       try {
         const token = JSON.parse(localStorage.getItem("token"));
         const response = await axios.get(
-          `http://localhost:5000/api/v1/auth/getUserByCardId/${data}`,
+          `${import.meta.env.VITE_BASE_URL}/api/v1/auth/getUserByCardId/${data}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

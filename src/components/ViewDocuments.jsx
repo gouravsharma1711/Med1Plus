@@ -95,7 +95,7 @@ const UserDocuments = () => {
       try {
         // Fetch documents directly from API to get the categorized documents
         const response = await axios.get(
-          `http://localhost:5000/api/v1/user/get-documents/${user?._id}`,
+          `${import.meta.env.VITE_BASE_URL}/api/v1/user/get-documents/${user?._id}`,
           {
             headers: {
               "Authorization": `Bearer ${token}`

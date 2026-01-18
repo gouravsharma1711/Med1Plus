@@ -92,7 +92,7 @@ const QRCodeScanner = () => {
     
     try {
       const response = await axios.post(
-        'http://localhost:5000/api/v1/auth/verifyCardAndGetUserData',
+        `${import.meta.env.VITE_BASE_URL}/api/v1/auth/verifyCardAndGetUserData`,
         { qrData },
         {
           headers: {

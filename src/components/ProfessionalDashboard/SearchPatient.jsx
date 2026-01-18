@@ -23,7 +23,7 @@ const SearchPatient = ({ setUserDetails, calculateAge }) => {
         // Search by Arogya Netra Card ID
         const token = JSON.parse(localStorage.getItem("token"));
         const response = await axios.get(
-          `http://localhost:5000/api/v1/auth/getUserByCardId/${searchQuery}`,
+          `${import.meta.env.VITE_BASE_URL}/api/v1/auth/getUserByCardId/${searchQuery}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

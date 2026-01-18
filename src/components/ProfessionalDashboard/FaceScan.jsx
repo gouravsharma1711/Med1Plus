@@ -20,7 +20,7 @@ const FaceScan = ({ setUserDetails, calculateAge }) => {
     const preloadUserImages = async () => {
       try {
         setPreloading(true);
-        const response = await axios.get('http://localhost:5000/api/v1/preload-user-images');
+        const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/preload-user-images`);
         console.log('Preloaded user images:', response.data);
         if (response.data.success) {
           toast.success(`Preloaded ${response.data.loadedCount} user images for faster recognition`);
@@ -129,7 +129,7 @@ const FaceScan = ({ setUserDetails, calculateAge }) => {
 
       // Race between the actual request and the timeout
       const response = await Promise.race([
-        axios.post('http://localhost:5000/api/v1/recognize', formData, {
+        axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/recognize`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           cancelToken: source.token
         }),

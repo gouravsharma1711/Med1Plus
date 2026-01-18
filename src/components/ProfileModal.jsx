@@ -172,7 +172,7 @@ const ProfileModal = ({ isOpen, onClose, token, userData }) => {
 
     try {
       const response = await axios.post(
-        'http://localhost:5000/api/v1/auth/update-medical-profile',
+        `${import.meta.env.VITE_BASE_URL}/api/v1/auth/update-medical-profile`,
         profileFormData,
         {
           headers: {
@@ -195,7 +195,7 @@ const ProfileModal = ({ isOpen, onClose, token, userData }) => {
           // Refresh user data to get the updated profile and card
           try {
             const userResponse = await axios.get(
-              'http://localhost:5000/api/v1/auth/getUserDetails',
+              `${import.meta.env.VITE_BASE_URL}/api/v1/auth/getUserDetails`,
               {
                 headers: {
                   Authorization: `Bearer ${token}`,
