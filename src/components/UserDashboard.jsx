@@ -705,7 +705,7 @@ const UserDashboard = () => {
 
     try {
       const response = await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/user/update-medical-profile',
+        `${import.meta.env.VITE_BASE_URL}/api/v1/user/update-medical-profile`,
         profileFormData,
         {
           headers: {
