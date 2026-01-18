@@ -1,25 +1,8 @@
 const express = require("express");
+require("dotenv").config();
 const app = express();
-let tf = null;
-let tfAvailable = false;
-let tfIsNode = false;
-try {
-  tf = require('@tensorflow/tfjs-node');
-  tfAvailable = true;
-  tfIsNode = true;
-  console.log('Using @tensorflow/tfjs-node backend');
-} catch (e1) {
-  try {
-    tf = require('@tensorflow/tfjs');
-    tfAvailable = true;
-    console.warn('Using @tensorflow/tfjs (JS backend). Install @tensorflow/tfjs-node for much better performance.');
-  } catch (e2) {
-    tf = null;
-    tfAvailable = false;
-    console.warn('@tensorflow/tfjs-node and @tensorflow/tfjs not found. Face recognition endpoints will return informative errors.');
-  }
-}
-const faceapi = require("face-api.js");
+const { faceapi, tf, tfAvailable, loadModels, canvas } = require("./utils/faceApi");
+const { Canvas, Image, ImageData } = canvas;
 const userRoutes = require("./routes/User");
 const uploadRoutes = require("./routes/Upload");
 
@@ -27,17 +10,8 @@ const database = require("./config/database");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const { cloudinaryConnect } = require("./config/cloudinary");
-const dotenv = require("dotenv");
 const fileUpload = require("express-fileupload");
 const cloudinary = require("cloudinary").v2;
-const canvas = require("canvas");
-const { Canvas, Image, ImageData } = canvas;
-
-// Monkey-patch face-api environment so it can use node-canvas with face-api.js
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
-
-// Ensure face-api uses the resolved tf implementation
-try { if (tf) { faceapi.tf = tf; } } catch (e) { console.warn('Could not set faceapi.tf:', e.message); }
 
 // Helper to get a tensor from a node-canvas element using the available backend
 function tfFromPixels(canvasEl) {
@@ -55,7 +29,6 @@ const User = require("./models/User");
 const fs = require("fs").promises; // Use fs.promises for async/await
 const { default: axios } = require("axios");
 
-dotenv.config();
 const PORT = process.env.PORT || 5000;
 
 // Database connection
@@ -68,20 +41,6 @@ app.use(cors({ origin: "*", credentials: true }));
 app.use(fileUpload({ useTempFiles: true, tempFileDir: "/tmp" }));
 
 cloudinaryConnect();
-
-// Load Face-api.js models with SSD MobileNet for better accuracy
-const loadModels = async () => {
-  try {
-    // Load both TinyFaceDetector (faster) and SSD MobileNet (more accurate)
-    await faceapi.nets.tinyFaceDetector.loadFromDisk('./frmodels');
-    await faceapi.nets.ssdMobilenetv1.loadFromDisk('./frmodels');
-    await faceapi.nets.faceLandmark68Net.loadFromDisk('./frmodels');
-    await faceapi.nets.faceRecognitionNet.loadFromDisk('./frmodels');
-    console.log('Face-api.js models loaded successfully.');
-  } catch (error) {
-    console.error('Error loading face-api.js models:', error);
-  }
-};
 
 loadModels().then(() => {
   console.log('Face recognition system initialized.');
